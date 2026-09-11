@@ -142,6 +142,7 @@ export const DEFAULT_HOTWORDS = [
 	"write ahead log",
 	"ingest API",
 	"split store",
+	"predicate cache",
 	"Kubernetes",
 	"kubectl",
 	"StatefulSet",
