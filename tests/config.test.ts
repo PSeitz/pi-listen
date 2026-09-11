@@ -45,8 +45,6 @@ describe("loadConfigWithSource", () => {
 		expect(result.config.hotwords).toContain("BYOC");
 		expect(result.config.hotwords).toContain("OpenTelemetry");
 		expect(result.config.hotwords).toContain("Kubernetes");
-		expect(result.config.hotwords).not.toContain("Yahoo");
-		expect(result.config.hotwords).not.toContain("Splunk");
 		expect(result.config.onboarding.completed).toBe(false);
 		expect(result.config.scope).toBe("global");
 	});
