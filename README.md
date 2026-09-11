@@ -286,7 +286,7 @@ Settings stored in Pi's settings files under the `voice` key:
     "language": "en",
     "backend": "local",
     "localModel": "parakeet-v3",
-    "hotwords": ["Tantivy", "Quickwit"],
+    "hotwords": ["Tantivy", "Quickwit", "BYOC"],
     "hotwordsScore": 2.0,
     "scope": "global",
     "onboarding": { "completed": true, "schemaVersion": 2 }
@@ -294,7 +294,7 @@ Settings stored in Pi's settings files under the `voice` key:
 }
 ```
 
-This fork defaults `hotwords` to `Tantivy` and `Quickwit`. An explicit list in
+This fork defaults `hotwords` to `Tantivy`, `Quickwit`, and `BYOC`. An explicit list in
 Pi settings replaces those defaults.
 
 `hotwords` enables contextual biasing for in-process Parakeet models. It does

@@ -41,7 +41,7 @@ describe("loadConfigWithSource", () => {
 
 		expect(result.source).toBe("default");
 		expect(result.config.enabled).toBe(true);
-		expect(result.config.hotwords).toEqual(["Tantivy", "Quickwit"]);
+		expect(result.config.hotwords).toEqual(["Tantivy", "Quickwit", "BYOC"]);
 		expect(result.config.onboarding.completed).toBe(false);
 		expect(result.config.scope).toBe("global");
 	});

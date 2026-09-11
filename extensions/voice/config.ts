@@ -128,7 +128,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	backend: undefined, // undefined = "deepgram" (default)
 	localModel: undefined,
 	localEndpoint: undefined,
-	hotwords: ["Tantivy", "Quickwit"],
+	hotwords: ["Tantivy", "Quickwit", "BYOC"],
 	hotwordsScore: 2.0,
 	toggleShortcut: "ctrl+shift+v",
 	// TTS defaults — all opt-in
