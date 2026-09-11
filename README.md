@@ -42,8 +42,11 @@
 
 ```bash
 # In a regular terminal (not inside Pi)
-pi install npm:@codexstar/pi-listen
+pi install git:github.com/PSeitz/pi-listen
 ```
+
+This installs the hotword-enabled fork directly from GitHub. Use
+`pi update git:github.com/PSeitz/pi-listen` to pull future updates.
 
 ### 2. Choose your backend
 
