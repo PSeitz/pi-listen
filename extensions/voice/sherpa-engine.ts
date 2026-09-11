@@ -18,6 +18,7 @@
  *   - SenseVoice: useInverseTextNormalization is 1/0, not true/false
  */
 
+import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import type { LocalModelInfo } from "./local";
@@ -29,7 +30,12 @@ import { loadSherpa, getSherpaModule, getSherpaError, isSherpaAvailable } from "
 type SherpaRecognizer = any;
 
 /** Cached recognizer for the currently loaded model + language */
-let cachedRecognizer: { modelId: string; language: string; recognizer: SherpaRecognizer } | null = null;
+let cachedRecognizer: {
+	modelId: string;
+	language: string;
+	hotwordsScore: number | undefined;
+	recognizer: SherpaRecognizer;
+} | null = null;
 
 // ─── Initialization ──────────────────────────────────────────────────────────
 
@@ -53,7 +59,12 @@ export { getSherpaError, isSherpaAvailable };
  * Get or create a recognizer for a model.
  * Returns a cached instance if the model hasn't changed.
  */
-export function getOrCreateRecognizer(model: LocalModelInfo, modelDir: string, language: string): SherpaRecognizer {
+export function getOrCreateRecognizer(
+	model: LocalModelInfo,
+	modelDir: string,
+	language: string,
+	hotwordsScore?: number,
+): SherpaRecognizer {
 	// getSherpaModule() throws if loadSherpa() hasn't run yet — same contract as
 	// the previous "if (!sherpaModule) throw" check, but routed through the
 	// shared loader so STT and TTS share the single-flight init.
@@ -62,15 +73,20 @@ export function getOrCreateRecognizer(model: LocalModelInfo, modelDir: string, l
 	// Strip regional suffix for local models (e.g. "pt-BR" → "pt")
 	const baseLang = language.split("-")[0] || language;
 
-	if (cachedRecognizer && cachedRecognizer.modelId === model.id && cachedRecognizer.language === baseLang) {
+	if (
+		cachedRecognizer
+		&& cachedRecognizer.modelId === model.id
+		&& cachedRecognizer.language === baseLang
+		&& cachedRecognizer.hotwordsScore === hotwordsScore
+	) {
 		return cachedRecognizer.recognizer;
 	}
 
 	// Destroy previous recognizer
 	clearRecognizerCache();
 
-	const recognizer = createRecognizer(model, modelDir, baseLang);
-	cachedRecognizer = { modelId: model.id, language: baseLang, recognizer };
+	const recognizer = createRecognizer(model, modelDir, baseLang, hotwordsScore);
+	cachedRecognizer = { modelId: model.id, language: baseLang, hotwordsScore, recognizer };
 	return recognizer;
 }
 
@@ -99,7 +115,11 @@ export function clearRecognizerCache(): void {
  * @param recognizer - sherpa OfflineRecognizer instance
  * @returns Transcribed text
  */
-export async function transcribeBuffer(pcmData: Buffer, recognizer: SherpaRecognizer): Promise<string> {
+export async function transcribeBuffer(
+	pcmData: Buffer,
+	recognizer: SherpaRecognizer,
+	hotwords: string[] = [],
+): Promise<string> {
 	// Throws if loadSherpa() hasn't run; callers always call initSherpa first.
 	getSherpaModule();
 
@@ -110,7 +130,8 @@ export async function transcribeBuffer(pcmData: Buffer, recognizer: SherpaRecogn
 	// API: stream.acceptWaveform({sampleRate, samples}) — verified from official examples
 	// decodeAsync runs inference on ONNX Runtime's background thread pool (N-API AsyncWorker),
 	// keeping the event loop free for UI updates during the 5-15s decode
-	const stream = recognizer.createStream();
+	const hotwordSpec = hotwords.length > 0 ? hotwords.join("/") : undefined;
+	const stream = recognizer.createStream(hotwordSpec);
 	stream.acceptWaveform({ sampleRate: 16000, samples });
 	await recognizer.decodeAsync(stream);
 
@@ -120,7 +141,12 @@ export async function transcribeBuffer(pcmData: Buffer, recognizer: SherpaRecogn
 
 // ─── Internal: Recognizer creation per model type ────────────────────────────
 
-function createRecognizer(model: LocalModelInfo, modelDir: string, language: string): SherpaRecognizer {
+function createRecognizer(
+	model: LocalModelInfo,
+	modelDir: string,
+	language: string,
+	hotwordsScore?: number,
+): SherpaRecognizer {
 	const modelType = model.sherpaModel?.type;
 
 	switch (modelType) {
@@ -133,7 +159,7 @@ function createRecognizer(model: LocalModelInfo, modelDir: string, language: str
 		case "nemo_ctc":
 			return createNemoCtcRecognizer(model, modelDir);
 		case "transducer":
-			return createTransducerRecognizer(model, modelDir);
+			return createTransducerRecognizer(model, modelDir, hotwordsScore);
 		default:
 			throw new Error(`Unknown sherpa model type: ${modelType} for model ${model.id}`);
 	}
@@ -251,8 +277,31 @@ function createNemoCtcRecognizer(model: LocalModelInfo, modelDir: string): Sherp
 //     TDT v3's encoder-decoder-joiner scales to ~6 P-cores; 4 leaves modern
 //     M-series chips idle. Per RTF curves at
 //     https://k2-fsa.github.io/sherpa/onnx/pretrained_models/offline-transducer/nemo-transducer-models.html.
-function createTransducerRecognizer(model: LocalModelInfo, modelDir: string): SherpaRecognizer {
+function ensureBpeVocab(modelDir: string, tokensPath: string): string {
+	const bpeVocabPath = path.join(modelDir, "bpe.vocab");
+	if (fs.existsSync(bpeVocabPath)) return bpeVocabPath;
+
+	// Parakeet releases include tokens.txt but not the SentencePiece bpe.vocab
+	// required by sherpa's hotword encoder. Equal scores reproduce longest-match
+	// tokenization, as recommended by sherpa-onnx's NeMo hotword example.
+	const vocab = fs.readFileSync(tokensPath, "utf8")
+		.split(/\r?\n/)
+		.filter((line) => line.trim().length > 0)
+		.map((line) => `${line.slice(0, line.lastIndexOf(" "))}\t-1.0`)
+		.join("\n") + "\n";
+	const tempPath = `${bpeVocabPath}.${process.pid}.tmp`;
+	try {
+		fs.writeFileSync(tempPath, vocab);
+		fs.renameSync(tempPath, bpeVocabPath);
+	} finally {
+		try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
+	}
+	return bpeVocabPath;
+}
+
+function createTransducerRecognizer(model: LocalModelInfo, modelDir: string, hotwordsScore?: number): SherpaRecognizer {
 	const files = model.sherpaModel!.files;
+	const tokensPath = path.join(modelDir, files.tokens!);
 	const sherpa = getSherpaModule();
 	return new sherpa.OfflineRecognizer({
 		featConfig: {
@@ -265,11 +314,20 @@ function createTransducerRecognizer(model: LocalModelInfo, modelDir: string): Sh
 				decoder: path.join(modelDir, files.decoder!),
 				joiner: path.join(modelDir, files.joiner!),
 			},
-			tokens: path.join(modelDir, files.tokens!),
+			tokens: tokensPath,
 			numThreads: getNumThreads(TRANSDUCER_MAX_THREADS),
 			provider: "cpu",
+			...(hotwordsScore !== undefined ? {
+				modelType: "nemo_transducer",
+				modelingUnit: "bpe",
+				bpeVocab: ensureBpeVocab(modelDir, tokensPath),
+			} : {}),
 			// debug: 1 — uncomment to log per-stage (encoder/decoder/joiner) timings.
 		},
+		...(hotwordsScore !== undefined ? {
+			decodingMethod: "modified_beam_search",
+			hotwordsScore,
+		} : {}),
 	});
 }
 

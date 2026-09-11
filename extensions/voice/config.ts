@@ -37,6 +37,10 @@ export interface VoiceConfig {
 	localModel?: string;
 	/** Local transcription server URL (default: http://localhost:8080) */
 	localEndpoint?: string;
+	/** Words or phrases to bias when using an in-process transducer model (Parakeet). */
+	hotwords?: string[];
+	/** Per-token contextual-biasing score. Higher values bias more strongly. Default: 2.0. */
+	hotwordsScore?: number;
 	/** Global-only shortcut used to toggle recording without hold-to-talk */
 	toggleShortcut?: string;
 
@@ -124,6 +128,8 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	backend: undefined, // undefined = "deepgram" (default)
 	localModel: undefined,
 	localEndpoint: undefined,
+	hotwords: [],
+	hotwordsScore: 2.0,
 	toggleShortcut: "ctrl+shift+v",
 	// TTS defaults — all opt-in
 	ttsEnabled: false,
@@ -194,6 +200,16 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource): VoiceConfig {
 		backend: rawVoice.backend === "local" ? "local" : undefined,
 		localModel: typeof rawVoice.localModel === "string" ? rawVoice.localModel : undefined,
 		localEndpoint: typeof rawVoice.localEndpoint === "string" ? rawVoice.localEndpoint : undefined,
+		hotwords: Array.isArray(rawVoice.hotwords)
+			? rawVoice.hotwords
+				.filter((word: unknown): word is string => typeof word === "string")
+				.map((word: string) => word.trim())
+				.filter((word: string) => word.length > 0 && !/[\r\n/:]/.test(word))
+				.slice(0, 100)
+			: DEFAULT_CONFIG.hotwords,
+		hotwordsScore: typeof rawVoice.hotwordsScore === "number" && Number.isFinite(rawVoice.hotwordsScore)
+			? Math.max(0.1, Math.min(10, rawVoice.hotwordsScore))
+			: DEFAULT_CONFIG.hotwordsScore,
 		toggleShortcut: source !== "project" && typeof rawVoice.toggleShortcut === "string"
 			? rawVoice.toggleShortcut
 			: DEFAULT_CONFIG.toggleShortcut,

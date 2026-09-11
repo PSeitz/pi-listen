@@ -64,6 +64,21 @@ describe("loadConfigWithSource", () => {
 		expect(result.config.onboarding.schemaVersion).toBe(result.config.version);
 	});
 
+	test("loads and sanitizes local hotwords", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", {
+			enabled: true,
+			hotwords: [" Tantivy ", "Quickwit", "bad/phrase", "bad:score", 42],
+			hotwordsScore: 50,
+		});
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+
+		expect(result.config.hotwords).toEqual(["Tantivy", "Quickwit"]);
+		expect(result.config.hotwordsScore).toBe(10);
+	});
+
 	test("keeps onboarding incomplete for partial legacy config", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");

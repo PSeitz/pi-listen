@@ -808,9 +808,14 @@ async function transcribeInProcess(pcmData: Buffer, config: VoiceConfig): Promis
 		model.sizeBytes,
 	);
 
+	// Contextual hotwords are supported by sherpa only for transducer models.
+	// Other local models retain their existing decoder and silently ignore them.
+	const hotwords = model.sherpaModel.type === "transducer" ? (config.hotwords || []) : [];
+	const hotwordsScore = hotwords.length > 0 ? (config.hotwordsScore ?? 2.0) : undefined;
+
 	// Create/reuse recognizer and transcribe
-	const recognizer = getOrCreateRecognizer(model, modelDir, config.language || "en");
-	return transcribeBuffer(pcmData, recognizer);
+	const recognizer = getOrCreateRecognizer(model, modelDir, config.language || "en", hotwordsScore);
+	return transcribeBuffer(pcmData, recognizer, hotwords);
 }
 
 /** Check if a local transcription server is reachable. */

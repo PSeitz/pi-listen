@@ -92,6 +92,22 @@ describe("clearRecognizerCache", () => {
 });
 
 describe("transcribeBuffer", () => {
+	test("passes configured hotwords to the stream", async () => {
+		await initSherpa();
+		let streamHotwords: string | undefined;
+		const recognizer = {
+			createStream(hotwords?: string) {
+				streamHotwords = hotwords;
+				return { acceptWaveform() {} };
+			},
+			async decodeAsync() {},
+			getResult() { return { text: "Tantivy" }; },
+		};
+
+		await transcribeBuffer(Buffer.from([0, 0]), recognizer, ["Tantivy", "Quickwit"]);
+		expect(streamHotwords).toBe("Tantivy/Quickwit");
+	});
+
 	test("accepts PCM buffers with an odd byteOffset", async () => {
 		await initSherpa();
 

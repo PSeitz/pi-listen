@@ -286,11 +286,20 @@ Settings stored in Pi's settings files under the `voice` key:
     "language": "en",
     "backend": "local",
     "localModel": "parakeet-v3",
+    "hotwords": ["Tantivy", "Quickwit"],
+    "hotwordsScore": 2.0,
     "scope": "global",
     "onboarding": { "completed": true, "schemaVersion": 2 }
   }
 }
 ```
+
+`hotwords` enables contextual biasing for in-process Parakeet models. It does
+not retrain the model: it switches sherpa-onnx to modified beam search and
+prefers matching token sequences during decoding. `hotwordsScore` is a per-token
+boost from `0.1` to `10`; start at `2.0` and increase it only if needed. Hotwords
+are ignored by Whisper, Moonshine, SenseVoice, GigaAM, external servers, and
+Deepgram. Project-scoped voice settings can provide a repository-specific list.
 
 `DEEPGRAM_API_KEY` from your shell is used at runtime and is not copied back
 into `~/.pi/agent/settings.json`. If you paste a key during onboarding, that is
