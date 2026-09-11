@@ -294,6 +294,9 @@ Settings stored in Pi's settings files under the `voice` key:
 }
 ```
 
+This fork defaults `hotwords` to `Tantivy` and `Quickwit`. An explicit list in
+Pi settings replaces those defaults.
+
 `hotwords` enables contextual biasing for in-process Parakeet models. It does
 not retrain the model: it switches sherpa-onnx to modified beam search and
 prefers matching token sequences during decoding. `hotwordsScore` is a per-token
