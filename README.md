@@ -294,8 +294,10 @@ Settings stored in Pi's settings files under the `voice` key:
 }
 ```
 
-This fork defaults `hotwords` to `Tantivy`, `Quickwit`, and `BYOC`. An explicit list in
-Pi settings replaces those defaults.
+This fork ships a project-oriented default hotword list covering BYOC/Datadog,
+Quickwit architecture, and infrastructure terminology. It intentionally excludes
+Yahoo-specific and Splunk-migration vocabulary. An explicit list in Pi settings
+replaces these defaults.
 
 `hotwords` enables contextual biasing for in-process Parakeet models. It does
 not retrain the model: it switches sherpa-onnx to modified beam search and

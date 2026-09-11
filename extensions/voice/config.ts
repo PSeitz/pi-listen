@@ -119,6 +119,47 @@ export interface ConfigPathOptions {
 	agentDir?: string;
 }
 
+export const DEFAULT_HOTWORDS = [
+	"Tantivy",
+	"Quickwit",
+	"BYOC",
+	"BYOC Logs",
+	"Observability Pipelines",
+	"OP worker",
+	"CloudPrem",
+	"Datadog Agent",
+	"logs to metrics",
+	"OpenTelemetry",
+	"OTel",
+	"OTLP",
+	"DQL",
+	"VRL",
+	"metastore",
+	"indexer",
+	"searcher",
+	"control plane",
+	"WAL",
+	"write ahead log",
+	"ingest API",
+	"split store",
+	"Kubernetes",
+	"kubectl",
+	"StatefulSet",
+	"StorageClass",
+	"ConfigMap",
+	"PersistentVolumeClaim",
+	"CrashLoopBackOff",
+	"OOMKilled",
+	"PostgreSQL",
+	"Terraform",
+	"Helm",
+	"EKS",
+	"GKE",
+	"EBS",
+	"NVMe",
+	"IOPS",
+];
+
 export const DEFAULT_CONFIG: VoiceConfig = {
 	version: VOICE_CONFIG_VERSION,
 	enabled: true,
@@ -128,7 +169,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	backend: undefined, // undefined = "deepgram" (default)
 	localModel: undefined,
 	localEndpoint: undefined,
-	hotwords: ["Tantivy", "Quickwit", "BYOC"],
+	hotwords: DEFAULT_HOTWORDS,
 	hotwordsScore: 2.0,
 	toggleShortcut: "ctrl+shift+v",
 	// TTS defaults — all opt-in
