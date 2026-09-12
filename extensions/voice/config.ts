@@ -122,6 +122,7 @@ export interface ConfigPathOptions {
 export const DEFAULT_HOTWORDS = [
 	"Tantivy",
 	"Quickwit",
+	"Pomsky",
 	"BYOC",
 	"BYOC Logs",
 	"EVP",
