@@ -44,6 +44,7 @@ describe("loadConfigWithSource", () => {
 		expect(result.config.hotwords).toContain("Tantivy");
 		expect(result.config.hotwords).toContain("Pomsky");
 		expect(result.config.hotwords).toContain("BYOC");
+		expect(result.config.hotwords).toContain("SaaS");
 		expect(result.config.hotwords).toContain("EVP");
 		expect(result.config.hotwords).toContain("OpenTelemetry");
 		expect(result.config.hotwords).toContain("Kubernetes");

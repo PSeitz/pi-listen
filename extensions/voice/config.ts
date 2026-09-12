@@ -125,6 +125,7 @@ export const DEFAULT_HOTWORDS = [
 	"Pomsky",
 	"BYOC",
 	"BYOC Logs",
+	"SaaS",
 	"EVP",
 	"Observability Pipelines",
 	"OP worker",
