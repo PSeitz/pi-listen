@@ -157,6 +157,7 @@ export const DEFAULT_HOTWORDS = [
 	"EKS",
 	"GKE",
 	"EBS",
+	"S3",
 	"NVMe",
 	"IOPS",
 ];

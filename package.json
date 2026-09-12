@@ -60,10 +60,14 @@
   "pi": {
     "extensions": [
       "./extensions/voice.ts"
+    ],
+    "prompts": [
+      "./prompts"
     ]
   },
   "files": [
     "extensions",
+    "prompts",
     "README.md",
     "LICENSE",
     "package.json"
