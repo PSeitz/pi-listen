@@ -124,6 +124,7 @@ export const DEFAULT_HOTWORDS = [
 	"Quickwit",
 	"BYOC",
 	"BYOC Logs",
+	"EVP",
 	"Observability Pipelines",
 	"OP worker",
 	"CloudPrem",
