@@ -143,6 +143,8 @@ export const DEFAULT_HOTWORDS = [
 	"metastore",
 	"indexer",
 	"searcher",
+	"query parser",
+	"tokenizer",
 	"control plane",
 	"WAL",
 	"write ahead log",

@@ -50,6 +50,8 @@ describe("loadConfigWithSource", () => {
 		expect(result.config.hotwords).toContain("merged");
 		expect(result.config.hotwords).toContain("merge");
 		expect(result.config.hotwords).toContain("OpenTelemetry");
+		expect(result.config.hotwords).toContain("query parser");
+		expect(result.config.hotwords).toContain("tokenizer");
 		expect(result.config.hotwords).toContain("Kubernetes");
 		expect(result.config.hotwords).toContain("S3");
 		expect(result.config.onboarding.completed).toBe(false);
