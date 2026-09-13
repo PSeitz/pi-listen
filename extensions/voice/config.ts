@@ -132,6 +132,8 @@ export const DEFAULT_HOTWORDS = [
 	"CloudPrem",
 	"Datadog Agent",
 	"logs to metrics",
+	"merged",
+	"merge",
 	"OpenTelemetry",
 	"OTel",
 	"OTLP",
