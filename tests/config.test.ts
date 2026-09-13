@@ -41,6 +41,7 @@ describe("loadConfigWithSource", () => {
 
 		expect(result.source).toBe("default");
 		expect(result.config.enabled).toBe(true);
+		expect(result.config.hotwords).toContain("pi");
 		expect(result.config.hotwords).toContain("Tantivy");
 		expect(result.config.hotwords).toContain("Pomsky");
 		expect(result.config.hotwords).toContain("BYOC");

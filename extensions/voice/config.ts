@@ -120,6 +120,7 @@ export interface ConfigPathOptions {
 }
 
 export const DEFAULT_HOTWORDS = [
+	"pi",
 	"Tantivy",
 	"Quickwit",
 	"Pomsky",
