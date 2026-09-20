@@ -44,6 +44,7 @@ describe("loadConfigWithSource", () => {
 		expect(result.config.hotwords).toContain("pi");
 		expect(result.config.hotwords).toContain("Tantivy");
 		expect(result.config.hotwords).toContain("Pomsky");
+		expect(result.config.hotwords).toContain("foyer");
 		expect(result.config.hotwords).toContain("BYOC");
 		expect(result.config.hotwords).toContain("SaaS");
 		expect(result.config.hotwords).toContain("EVP");

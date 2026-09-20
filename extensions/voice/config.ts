@@ -124,6 +124,7 @@ export const DEFAULT_HOTWORDS = [
 	"Tantivy",
 	"Quickwit",
 	"Pomsky",
+	"foyer",
 	"BYOC",
 	"BYOC Logs",
 	"SaaS",
