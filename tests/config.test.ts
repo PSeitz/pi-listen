@@ -50,6 +50,7 @@ describe("loadConfigWithSource", () => {
 		expect(result.config.hotwords).toContain("EVP");
 		expect(result.config.hotwords).toContain("merged");
 		expect(result.config.hotwords).toContain("merge");
+		expect(result.config.hotwords).toContain("iter");
 		expect(result.config.hotwords).toContain("OpenTelemetry");
 		expect(result.config.hotwords).toContain("query parser");
 		expect(result.config.hotwords).toContain("tokenizer");

@@ -136,6 +136,7 @@ export const DEFAULT_HOTWORDS = [
 	"logs to metrics",
 	"merged",
 	"merge",
+	"iter",
 	"OpenTelemetry",
 	"OTel",
 	"OTLP",
