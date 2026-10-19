@@ -17,7 +17,6 @@ export class VoiceLearningSession {
 	private originalPrefix = "";
 	private suggestedPrefix = "";
 	private lastOriginal?: string;
-	private editorText = "";
 	private userEditing = false;
 
 	constructor(readonly learning: VoiceLearning) {}
@@ -28,7 +27,6 @@ export class VoiceLearningSession {
 		this.originalPrefix = prefix && this.pending ? this.pending.original : prefix;
 		this.suggestedPrefix = prefix && this.pending ? this.pending.suggested : prefix;
 		this.pending = undefined;
-		this.editorText = prefix;
 		this.userEditing = false;
 		return ++this.generation;
 	}
@@ -46,16 +44,8 @@ export class VoiceLearningSession {
 		this.rewriteController?.abort();
 	}
 
-	showTranscript(text: string, prefix: string, editor: Editor): boolean {
+	rememberTranscript(text: string): void {
 		this.lastOriginal = append(this.originalPrefix, text);
-		if (this.pending) this.pending.original = this.lastOriginal;
-		if (editor.getEditorText() !== this.editorText) this.takeEditorControl();
-		if (this.userEditing) return false;
-		const previous = this.editorText;
-		this.editorText = append(prefix, text);
-		if (this.editorText !== previous) editor.setEditorText(this.editorText);
-		this.preview(text);
-		return true;
 	}
 
 	observeEditor(text: string): void {
@@ -67,10 +57,11 @@ export class VoiceLearningSession {
 	}
 
 	async finish(text: string, prefix: string, complete: Completion, editor: Editor): Promise<string | null> {
-		if (this.userEditing) return null;
-		this.preview(text);
-		const pending = this.pending!;
-		const expected = append(prefix, text);
+		// Keep all STT/model output off-editor until it is ready to insert once.
+		this.rememberTranscript(text);
+		if (this.userEditing || editor.getEditorText() !== prefix) return null;
+		const pending = this.pending;
+		const expected = prefix;
 		const generation = this.generation;
 		const controller = new AbortController();
 		this.rewriteController = controller;
@@ -84,8 +75,8 @@ export class VoiceLearningSession {
 		if (editor.getEditorText() !== expected) return null;
 		const result = append(prefix, rewritten);
 		if (!result.trim()) return null;
-		pending.suggested = append(this.suggestedPrefix, rewritten);
-		this.editorText = result;
+		this.preview(text);
+		this.pending!.suggested = append(this.suggestedPrefix, rewritten);
 		if (result !== expected) editor.setEditorText(result);
 		return result;
 	}

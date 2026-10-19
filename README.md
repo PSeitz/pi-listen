@@ -139,9 +139,9 @@ See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtim
 ### How recording works
 
 1. **Hold SPACE** — warmup countdown appears, audio capture starts immediately (pre-recording)
-2. **Keep holding** — live transcription streams into the editor (Deepgram) or audio buffers (local)
+2. **Keep holding** — speech is collected without changing the editor (streamed with Deepgram, audio-buffered locally)
 3. **Release SPACE** — recording continues for 1.5s (tail recording) to catch your last word, then finalizes
-4. Text appears in the editor, ready to send
+4. Transcription and automatic correction finish off-editor, then the result is inserted **once**, ready to send. If you typed or moved the cursor meanwhile, nothing is inserted; `/voice-learn raw` can recover the transcript.
 
 ### Commands
 
@@ -320,6 +320,8 @@ hold-to-talk/toggle controls. It does **not** listen continuously or retain audi
 After transcription, learned case-insensitive literal replacements run locally.
 Learned wording preferences, when present, trigger a separate call to the currently
 selected Pi model to rewrite the draft before auto-submit or manual editing.
+Neither interim transcripts nor the uncorrected draft are written into the editor.
+Only the finished result is inserted, once, and only if the editor remained untouched.
 Broad replacements such as `fire` → `feuer` are allowed; matches respect word
 boundaries and do not cascade through other rules.
 
@@ -338,8 +340,9 @@ that it was correct. The analysis is instructed to ignore unrelated replacement
 messages. Clearing the draft abandons its pending example; session changes also
 clear pending associations. Typing or moving the cursor cancels pending rewrites
 and stops automatic editor changes until you start another recording—even if you
-undo your edits or the text itself never changes. Unchanged results are not reinserted,
-so they do not reset the cursor. Learned hotwords affect in-process Parakeet only;
+undo your edits or the text itself never changes. A result that was not inserted is
+available through `/voice-learn raw` and is not used as correction evidence.
+Once text is visible, voice recognition and rewriting never replace it. Learned hotwords affect in-process Parakeet only;
 text rewriting works with every recognition backend.
 
 Data and controls live in `~/.pi/agent/voice-learning.json`, **not Pi settings** or the

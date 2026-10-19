@@ -1114,26 +1114,10 @@ export default function (pi: ExtensionAPI) {
 	}
 
 
-	// ─── Live Transcript ────────────────────────────────────────────────────
-	// Instead of showing transcript in a widget, put it directly in the editor
-	// input area so users see it where they type.
-
-	function updateLiveTranscriptWidget(interim: string, finals: string[]) {
-		if (!ctx?.hasUI) return;
-
-		// DON'T stop the waveform animation — keep it running!
-		// We still want the ● REC waveform + timer to show.
-		// Just update the editor text with the live transcript.
-
-		const finalized = finals.join(" ");
-		const displayText = finalized + (interim ? (finalized ? " " : "") + interim : "");
-
-		// Show live text directly in the editor input (prepend any existing text)
-		if (displayText.trim()) {
-			voiceLearning.showTranscript(displayText, editorTextBeforeVoice, ctx.ui);
-		}
-
-
+	// Retain interim speech for raw recovery, never replace text in the editor.
+	function rememberTranscript(interim: string, finals: string[]) {
+		const text = [...finals, interim].filter(Boolean).join(" ");
+		if (text.trim()) voiceLearning.rememberTranscript(text);
 	}
 
 	// ─── Voice: Start / Stop ─────────────────────────────────────────────────
@@ -1170,7 +1154,7 @@ export default function (pi: ExtensionAPI) {
 
 		recordingStart = Date.now();
 
-		// Snapshot editor text before voice overwrites it with live transcript
+		// Only insert the finished result if this draft has remained untouched.
 		editorTextBeforeVoice = ctx?.hasUI ? (ctx.ui.getEditorText() || "") : "";
 
 		return startStreamingRecording();
@@ -1231,8 +1215,7 @@ export default function (pi: ExtensionAPI) {
 		const recordingCallbacks = {
 			onTranscript: (interim: string, finals: string[]) => {
 				if (!voiceLearning.isCurrent(generation)) return;
-				// Live transcript update — this is the key UX feature
-				updateLiveTranscriptWidget(interim, finals);
+				rememberTranscript(interim, finals);
 				updateVoiceStatus();
 			},
 			onDone: async (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => {
@@ -1270,12 +1253,12 @@ export default function (pi: ExtensionAPI) {
 				if (ctx.hasUI) {
 					const elapsed = ((Date.now() - recordingStart) / 1000).toFixed(1);
 					addToHistory(fullText, parseFloat(elapsed));
-					// Check ownership before STT writes too, not just after asynchronous rewriting.
-					if (!voiceLearning.showTranscript(fullText, prefix, ctx.ui)) return;
-					let finalText = (prefix ? prefix + " " : "") + fullText;
-					const rewritten = await voiceLearning.finish(fullText, prefix, learningCompletion(ctx), ctx.ui);
-					if (rewritten === null || !voiceLearning.isCurrent(generation)) return;
-					finalText = rewritten;
+					const finalText = await voiceLearning.finish(fullText, prefix, learningCompletion(ctx), ctx.ui);
+					if (!voiceLearning.isCurrent(generation)) return;
+					if (finalText === null) {
+						ctx.ui.notify("Voice text held because you edited the draft. /voice-learn raw restores the transcript.", "info");
+						return;
+					}
 
 					// v7.1.1 — auto-submit on STT (config.autoSubmitOnSpeak).
 					// When enabled, the transcribed text is sent to the
@@ -1390,7 +1373,7 @@ export default function (pi: ExtensionAPI) {
 			session.onError = recordingCallbacks.onError;
 			// Flush any transcript already accumulated during warmup
 			if (session.finalizedParts.length > 0 || session.interimText) {
-				updateLiveTranscriptWidget(session.interimText, session.finalizedParts);
+				rememberTranscript(session.interimText, session.finalizedParts);
 			}
 		} else {
 			session = startStreamingSession(config, recordingCallbacks);
@@ -1666,8 +1649,8 @@ export default function (pi: ExtensionAPI) {
 						hideWidget();
 						setVoiceState("idle");
 						if (holdDuration < 300) {
-							// Quick tap — just type a space
-							if (ctx?.hasUI) ctx.ui.setEditorText((ctx.ui.getEditorText() || "") + " ");
+							// Quick tap — insert at the cursor without replacing the draft.
+							if (ctx?.hasUI) ctx.ui.pasteToEditor(" ");
 						} else {
 							// Held long enough to see warmup but let go → show hint
 							ctx?.ui.notify("Hold SPACE longer to activate voice.", "info");
@@ -1679,7 +1662,7 @@ export default function (pi: ExtensionAPI) {
 					// Kitty path since we enter warmup on first press, but handle anyway)
 					if (spaceDownTime && !holdConfirmed && voiceState === "idle") {
 						resetHoldState();
-						if (ctx?.hasUI) ctx.ui.setEditorText((ctx.ui.getEditorText() || "") + " ");
+						if (ctx?.hasUI) ctx.ui.pasteToEditor(" ");
 						return { consume: true };
 					}
 
@@ -2006,8 +1989,6 @@ export default function (pi: ExtensionAPI) {
 					clearWarmupWidget();
 					hideWidget();
 					if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
-					// Restore editor text to what it was before recording
-					if (ctx?.hasUI) ctx.ui.setEditorText(editorTextBeforeVoice);
 					resetHoldState();
 					playSound("error");
 					setVoiceState("idle");
