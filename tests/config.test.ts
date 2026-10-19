@@ -92,7 +92,15 @@ describe("loadConfigWithSource", () => {
 		const result = loadConfigWithSource(cwd, { agentDir });
 
 		expect(result.config.hotwords).toEqual(["Tantivy", "Quickwit"]);
-		expect(result.config.hotwordsScore).toBe(10);
+		expect(result.config.hotwordsScore).toBe(50);
+	});
+
+	test.each([0.05, 0, -2])("preserves hotword score %s without clamping", (hotwordsScore) => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { hotwordsScore });
+
+		expect(loadConfigWithSource(cwd, { agentDir }).config.hotwordsScore).toBe(hotwordsScore);
 	});
 
 	test("keeps onboarding incomplete for partial legacy config", () => {

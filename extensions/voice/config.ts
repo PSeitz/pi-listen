@@ -262,7 +262,7 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource): VoiceConfig {
 				.slice(0, 100)
 			: DEFAULT_CONFIG.hotwords,
 		hotwordsScore: typeof rawVoice.hotwordsScore === "number" && Number.isFinite(rawVoice.hotwordsScore)
-			? Math.max(0.1, Math.min(10, rawVoice.hotwordsScore))
+			? rawVoice.hotwordsScore
 			: DEFAULT_CONFIG.hotwordsScore,
 		toggleShortcut: source !== "project" && typeof rawVoice.toggleShortcut === "string"
 			? rawVoice.toggleShortcut
