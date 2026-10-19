@@ -336,8 +336,10 @@ Multiple recordings appended to one draft count as one submission. Manual revers
 are feedback; accepting an automatic rewrite is not treated as independent evidence
 that it was correct. The analysis is instructed to ignore unrelated replacement
 messages. Clearing the draft abandons its pending example; session changes also
-clear pending associations. Late model responses never overwrite edits made while
-rewriting was in progress. Learned hotwords affect in-process Parakeet only;
+clear pending associations. Typing or moving the cursor cancels pending rewrites
+and stops automatic editor changes until you start another recording—even if you
+undo your edits or the text itself never changes. Unchanged results are not reinserted,
+so they do not reset the cursor. Learned hotwords affect in-process Parakeet only;
 text rewriting works with every recognition backend.
 
 Data and controls live in `~/.pi/agent/voice-learning.json`, **not Pi settings** or the

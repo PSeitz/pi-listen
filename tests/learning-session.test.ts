@@ -64,6 +64,17 @@ test("auto-submit confirms once and exposes automatic origin for editor clearing
 	await tick();
 });
 
+test("accepted auto-submit cannot clear the editor after the user takes control", async () => {
+	const { learning, session, editor } = setup();
+	session.begin("");
+	session.preview("fire");
+	session.stageSubmission("fire", true);
+	session.takeEditorControl();
+	expect(session.confirmSubmission("fire", never, editor)).toBe(false);
+	expect(learning.getState().pendingCount).toBe(1);
+	await tick();
+});
+
 test("rewrites broad words while preserving prefix whitespace", async () => {
 	const { learning, session, editor } = setup();
 	await install(learning);
@@ -157,6 +168,58 @@ test.each(["edit", "clear", "submit", "new recording", "shutdown", "raw"])("late
 		expect(learning.getState().examples.at(-1)).toEqual({ original: "fire", suggested: "fire", submitted: "feuer" });
 		await tick();
 	}
+});
+
+test.each(["cursor movement", "typing then undo", "keypress before editor update"])("%s permanently cancels a pending rewrite without losing feedback", async action => {
+	const { learning, session, editor } = setup();
+	await install(learning, { ...rules, instructions: ["Remove filler words"] });
+	session.begin("");
+	session.showTranscript("fire", "", editor);
+	const pending = deferred();
+	let signal!: AbortSignal;
+	const task = session.finish("fire", "", (...args) => {
+		signal = args[2];
+		return pending.complete(...args);
+	}, editor);
+	session.takeEditorControl();
+	if (action === "typing then undo") {
+		editor.setEditorText("fire edit");
+		editor.setEditorText("fire");
+	}
+	expect(signal.aborted).toBe(true);
+	pending.resolve('{"text":"late rewrite"}');
+	expect(await task).toBe(null);
+	expect(editor.getEditorText()).toBe("fire");
+	expect(session.showTranscript("later STT result", "", editor)).toBe(false);
+	expect(await session.finish("fire", "", never, editor)).toBe(null);
+	session.stageSubmission("manual correction");
+	session.confirmSubmission("manual correction", never, editor);
+	expect(learning.getState().examples.at(-1)?.suggested).toBe("fire");
+	expect(learning.getState().examples.at(-1)?.submitted).toBe("manual correction");
+	await tick();
+});
+
+test("only starting another recording permits automatic changes after user input", () => {
+	const { session, editor } = setup();
+	session.begin("");
+	session.takeEditorControl();
+	expect(session.showTranscript("late transcript", "", editor)).toBe(false);
+	expect(editor.getEditorText()).toBe("");
+	session.begin("");
+	expect(session.showTranscript("new recording", "", editor)).toBe(true);
+	expect(editor.getEditorText()).toBe("new recording");
+});
+
+test("identical transcripts and unchanged rewrites never reinsert text or reset the cursor", async () => {
+	const { session, editor } = setup();
+	let writes = 0;
+	const tracked = { ...editor, setEditorText(text: string) { writes++; editor.setEditorText(text); } };
+	session.begin("");
+	session.showTranscript("raw speech", "", tracked);
+	expect(writes).toBe(1);
+	session.showTranscript("raw speech", "", tracked);
+	expect(await session.finish("raw speech", "", never, tracked)).toBe("raw speech");
+	expect(writes).toBe(1);
 });
 
 test("model failures leave raw text available and warn", async () => {

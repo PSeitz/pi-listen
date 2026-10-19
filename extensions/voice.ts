@@ -1570,6 +1570,11 @@ export default function (pi: ExtensionAPI) {
 			"tui.editor.deleteWordBackward", "tui.editor.deleteWordForward", "tui.editor.deleteToLineStart",
 			"tui.editor.deleteToLineEnd", "tui.editor.undo"] as const;
 		terminalInputUnsub = ctx.ui.onTerminalInput((data: string) => {
+			// Stop automatic editor changes before typing/navigation is handled, even
+			// when it leaves the text unchanged. Held voice-activation spaces are exempt.
+			if (!isKeyRelease(data) && (!matchesKey(data, "space") || (voiceState === "idle" && !spaceConsumed))) {
+				voiceLearning.takeEditorControl();
+			}
 			if (!isKeyRelease(data) && deletionActions.some(action => keybindings.matches(data, action))) {
 				const editorCtx = ctx;
 				queueMicrotask(() => {

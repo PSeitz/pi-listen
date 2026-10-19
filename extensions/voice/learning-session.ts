@@ -18,6 +18,7 @@ export class VoiceLearningSession {
 	private suggestedPrefix = "";
 	private lastOriginal?: string;
 	private editorText = "";
+	private userEditing = false;
 
 	constructor(readonly learning: VoiceLearning) {}
 
@@ -28,6 +29,7 @@ export class VoiceLearningSession {
 		this.suggestedPrefix = prefix && this.pending ? this.pending.suggested : prefix;
 		this.pending = undefined;
 		this.editorText = prefix;
+		this.userEditing = false;
 		return ++this.generation;
 	}
 
@@ -38,12 +40,20 @@ export class VoiceLearningSession {
 		this.lastOriginal = this.pending.original;
 	}
 
+	/** Give the user control until they explicitly start another recording. */
+	takeEditorControl(): void {
+		this.userEditing = true;
+		this.rewriteController?.abort();
+	}
+
 	showTranscript(text: string, prefix: string, editor: Editor): boolean {
 		this.lastOriginal = append(this.originalPrefix, text);
 		if (this.pending) this.pending.original = this.lastOriginal;
-		if (editor.getEditorText() !== this.editorText) return false;
+		if (editor.getEditorText() !== this.editorText) this.takeEditorControl();
+		if (this.userEditing) return false;
+		const previous = this.editorText;
 		this.editorText = append(prefix, text);
-		editor.setEditorText(this.editorText);
+		if (this.editorText !== previous) editor.setEditorText(this.editorText);
 		this.preview(text);
 		return true;
 	}
@@ -57,6 +67,7 @@ export class VoiceLearningSession {
 	}
 
 	async finish(text: string, prefix: string, complete: Completion, editor: Editor): Promise<string | null> {
+		if (this.userEditing) return null;
 		this.preview(text);
 		const pending = this.pending!;
 		const expected = append(prefix, text);
@@ -69,13 +80,13 @@ export class VoiceLearningSession {
 		} catch (error) {
 			if (!controller.signal.aborted) editor.notify(`Voice rewrite skipped: ${error instanceof Error ? error.message : error}`, "warning");
 		}
-		if (!this.isCurrent(generation) || controller.signal.aborted || this.pending !== pending) return null;
+		if (this.userEditing || !this.isCurrent(generation) || controller.signal.aborted || this.pending !== pending) return null;
 		if (editor.getEditorText() !== expected) return null;
 		const result = append(prefix, rewritten);
 		if (!result.trim()) return null;
 		pending.suggested = append(this.suggestedPrefix, rewritten);
 		this.editorText = result;
-		editor.setEditorText(result);
+		if (result !== expected) editor.setEditorText(result);
 		return result;
 	}
 
@@ -99,7 +110,7 @@ export class VoiceLearningSession {
 		} catch (error) {
 			editor.notify(`Voice learning skipped: ${error instanceof Error ? error.message : error}`, "warning");
 		}
-		return automatic;
+		return automatic && !this.userEditing;
 	}
 
 	private analyze(complete: Completion, editor: Editor): void {
@@ -125,7 +136,7 @@ export class VoiceLearningSession {
 
 	restoreOriginal(editor: Editor): boolean {
 		if (this.lastOriginal === undefined) return false;
-		this.rewriteController?.abort();
+		this.takeEditorControl();
 		editor.setEditorText(this.lastOriginal);
 		return true;
 	}
