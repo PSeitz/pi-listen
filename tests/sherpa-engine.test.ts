@@ -104,8 +104,8 @@ describe("transcribeBuffer", () => {
 			getResult() { return { text: "Tantivy" }; },
 		};
 
-		await transcribeBuffer(Buffer.from([0, 0]), recognizer, ["Tantivy", "Quickwit"]);
-		expect(streamHotwords).toBe("Tantivy/Quickwit");
+		await transcribeBuffer(Buffer.from([0, 0]), recognizer, ["Tantivy", "Quickwit", "feuer :10"]);
+		expect(streamHotwords).toBe("Tantivy/Quickwit/feuer :10");
 	});
 
 	test("accepts PCM buffers with an odd byteOffset", async () => {

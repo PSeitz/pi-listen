@@ -37,7 +37,7 @@ export interface VoiceConfig {
 	localModel?: string;
 	/** Local transcription server URL (default: http://localhost:8080) */
 	localEndpoint?: string;
-	/** Words or phrases to bias when using an in-process transducer model (Parakeet). */
+	/** Words or phrases to bias with Parakeet; optional per-phrase score: "feuer :10". */
 	hotwords?: string[];
 	/** Per-token contextual-biasing score. Higher values bias more strongly. Default: 2.0. */
 	hotwordsScore?: number;
@@ -125,7 +125,7 @@ export const DEFAULT_HOTWORDS = [
 	"Quickwit",
 	"Pomsky",
 	"foyer",
-	"feuer",
+	"feuer :10",
 	"BYOC",
 	"BYOC Logs",
 	"SaaS",
@@ -258,7 +258,12 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource): VoiceConfig {
 			? rawVoice.hotwords
 				.filter((word: unknown): word is string => typeof word === "string")
 				.map((word: string) => word.trim())
-				.filter((word: string) => word.length > 0 && !/[\r\n/:]/.test(word))
+				.filter((word: string) => {
+					const score = word.match(/ :([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)$/);
+					const phrase = score ? word.slice(0, score.index).trim() : word;
+					return phrase.length > 0 && !/[\r\n/:]/.test(phrase)
+						&& (!score || Number.isFinite(Number(score[1])));
+				})
 				.slice(0, 100)
 			: DEFAULT_CONFIG.hotwords,
 		hotwordsScore: typeof rawVoice.hotwordsScore === "number" && Number.isFinite(rawVoice.hotwordsScore)

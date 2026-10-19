@@ -63,7 +63,7 @@ import type {
 	ExtensionContext,
 	ExtensionCommandContext,
 } from "@mariozechner/pi-coding-agent";
-import { isKeyRelease, isKeyRepeat, matchesKey, Key, type KeyId } from "@mariozechner/pi-tui";
+import { getKeybindings, isKeyRelease, isKeyRepeat, matchesKey, Key, type KeyId } from "@mariozechner/pi-tui";
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
@@ -79,6 +79,9 @@ import {
 	type VoiceSettingsScope,
 } from "./voice/config";
 import { finalizeOnboardingConfig, runVoiceOnboarding, pickLanguage, languageDisplayName, modelForLanguage } from "./voice/onboarding";
+import { VoiceLearning } from "./voice/learning";
+import { VoiceLearningSession } from "./voice/learning-session";
+import { learningCompletion } from "./voice/learning-model";
 import { makeWidgetRegistry, type WidgetRegistry } from "./voice/ui-widget-base";
 import { makeRenderTicker, type RenderTicker } from "./voice/ui-render-ticker";
 import { TtsInstallProgressWidget } from "./voice/tts-install-progress";
@@ -641,6 +644,9 @@ export default function (pi: ExtensionAPI) {
 	let recordingStart = 0;
 	let statusTimer: ReturnType<typeof setInterval> | null = null;
 	let terminalInputUnsub: (() => void) | null = null;
+	const learningPath = path.join(os.homedir(), ".pi", "agent", "voice-learning.json");
+	const learning = new VoiceLearning(learningPath);
+	const voiceLearning = new VoiceLearningSession(learning);
 
 	// ─── v7.1 Settings UI: widget registry + render ticker (per session) ──
 	// Created lazily on first use (session_start) and torn down in
@@ -837,6 +843,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function voiceCleanup() {
+		voiceLearning.clear();
 		// v7.1: cancel in-flight installs FIRST so their AbortControllers
 		// fire before we drop UI state. Without this, a session_shutdown
 		// during a download would leave the network/disk work running
@@ -1123,8 +1130,7 @@ export default function (pi: ExtensionAPI) {
 
 		// Show live text directly in the editor input (prepend any existing text)
 		if (displayText.trim()) {
-			const prefix = editorTextBeforeVoice ? editorTextBeforeVoice + " " : "";
-			ctx.ui.setEditorText(prefix + displayText);
+			voiceLearning.showTranscript(displayText, editorTextBeforeVoice, ctx.ui);
 		}
 
 
@@ -1214,17 +1220,23 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function startStreamingRecording(): Promise<boolean> {
+		const recordingContext = ctx;
+		if (!recordingContext?.hasUI) return false;
+		const prefix = editorTextBeforeVoice;
+		const generation = voiceLearning.begin(prefix);
 		voiceDebug("startStreamingRecording called", { hasKey: !!resolveDeepgramApiKey(config), hasPreRecording: !!preRecordingSession });
 		setVoiceState("recording");
 
 		// ── Callbacks for the active recording session ──
 		const recordingCallbacks = {
 			onTranscript: (interim: string, finals: string[]) => {
+				if (!voiceLearning.isCurrent(generation)) return;
 				// Live transcript update — this is the key UX feature
 				updateLiveTranscriptWidget(interim, finals);
 				updateVoiceStatus();
 			},
-			onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => {
+			onDone: async (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => {
+				const ctx = recordingContext;
 				voiceDebug("onDone callback", { fullText: fullText.slice(0, 100), meta, voiceState, spaceConsumed });
 				activeSession = null;
 				clearRecordingAnimTimer();
@@ -1232,6 +1244,7 @@ export default function (pi: ExtensionAPI) {
 				lastStopTime = Date.now();
 
 				if (!fullText.trim()) {
+					voiceLearning.clear();
 					// ── DISTINGUISH SILENCE VS NO SPEECH ──
 					hideWidget();
 					playSound("error");
@@ -1249,24 +1262,20 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				hideWidget();
+				playSound("stop");
+				resetHoldState();
+				setVoiceState("idle");
+				if (!voiceLearning.isCurrent(generation)) return;
 
-				if (ctx?.hasUI) {
-					const prefix = editorTextBeforeVoice ? editorTextBeforeVoice + " " : "";
-					const isLocal = config.backend === "local";
-					const finalText = prefix + fullText;
-
-					if (isLocal) {
-						// Local backend (batch mode): no interim transcripts were sent to the editor,
-						// so we must always insert the final text. This is the ONLY place it arrives.
-						ctx.ui.setEditorText(finalText);
-					} else {
-						// Streaming backend: interim transcripts already updated the editor live.
-						// Only set final text if the editor still has content (user didn't hit Enter).
-						const currentEditorText = ctx.ui.getEditorText?.() ?? "";
-						if (currentEditorText.trim()) {
-							ctx.ui.setEditorText(finalText);
-						}
-					}
+				if (ctx.hasUI) {
+					const elapsed = ((Date.now() - recordingStart) / 1000).toFixed(1);
+					addToHistory(fullText, parseFloat(elapsed));
+					// Check ownership before STT writes too, not just after asynchronous rewriting.
+					if (!voiceLearning.showTranscript(fullText, prefix, ctx.ui)) return;
+					let finalText = (prefix ? prefix + " " : "") + fullText;
+					const rewritten = await voiceLearning.finish(fullText, prefix, learningCompletion(ctx), ctx.ui);
+					if (rewritten === null || !voiceLearning.isCurrent(generation)) return;
+					finalText = rewritten;
 
 					// v7.1.1 — auto-submit on STT (config.autoSubmitOnSpeak).
 					// When enabled, the transcribed text is sent to the
@@ -1291,10 +1300,6 @@ export default function (pi: ExtensionAPI) {
 									"info",
 								);
 							} catch { /* notify may fail silently */ }
-							// Skip dispatch but DON'T early-return —
-							// the rest of the onDone handler still
-							// needs to run state cleanup
-							// (resetHoldState / setVoiceState("idle")).
 						} else {
 						// `sendUserMessage` lives on the `pi` ExtensionAPI
 						// surface, NOT on `ctx`. Always triggers a turn.
@@ -1302,39 +1307,19 @@ export default function (pi: ExtensionAPI) {
 						// messages instead of throwing "Agent is already
 						// processing".
 						//
-						// v7.2.2 (godspeed architect finding) — only
-						// clear the editor AFTER send confirms. If
-						// send rejects synchronously OR returns a
-						// rejected Promise, the user's dictated text
-						// stays visible so they can re-send.
+						// Capture and clear only when message_start confirms acceptance.
+						// sendUserMessage can return void before asynchronous validation.
 						const send = (pi as any).sendUserMessage as ((text: string, opts?: any) => unknown) | undefined;
 						if (typeof send === "function") {
 							voiceDebug("autoSubmitOnSpeak: dispatching", { len: finalText.length });
-							// godspeed architect finding — only clear if the
-							// editor STILL contains exactly the dispatched
-							// transcript. If the user typed more chars or
-							// edited it while send was pending, leave their
-							// edits alone.
-							const dispatchedText = finalText;
-							const clearAfterSuccess = () => {
-								try {
-									const cur = ctx?.ui.getEditorText?.() ?? "";
-									if (cur === dispatchedText) {
-										ctx?.ui.setEditorText("");
-									}
-								} catch { /* ui may be gone */ }
-								editorTextBeforeVoice = "";
-							};
+							voiceLearning.stageSubmission(finalText, true);
 							try {
 								const r = send(finalText, { deliverAs: "followUp" });
 								if (r && typeof (r as Promise<unknown>).then === "function") {
-									(r as Promise<unknown>).then(clearAfterSuccess).catch((err) => {
+									(r as Promise<unknown>).catch((err) => {
 										voiceDebug("autoSubmitOnSpeak: sendUserMessage rejected", String(err));
 										// Editor stays populated — user can re-press [enter].
 									});
-								} else {
-									// Sync return (or undefined) — assume success.
-									clearAfterSuccess();
 								}
 							} catch (err) {
 								voiceDebug("autoSubmitOnSpeak: sendUserMessage threw sync", String(err));
@@ -1350,16 +1335,10 @@ export default function (pi: ExtensionAPI) {
 						}
 						} // end else (agent not busy)
 					}
-
-					const elapsed = ((Date.now() - recordingStart) / 1000).toFixed(1);
-					addToHistory(fullText, parseFloat(elapsed));
 				}
-				playSound("stop");
-				// Full state reset on successful completion
-				resetHoldState();
-				setVoiceState("idle");
 			},
 			onError: (err: string) => {
+				voiceLearning.clear();
 				activeSession = null;
 				clearRecordingAnimTimer();
 				if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
@@ -1475,7 +1454,10 @@ export default function (pi: ExtensionAPI) {
 				// Local: show which model is transcribing + estimated time
 				const modelName = LOCAL_MODELS.find(m => m.id === (config.localModel || "whisper-small"))?.name || config.localModel || "local model";
 				ctx?.ui.notify(`Transcribing with ${modelName}…`, "info");
-				await stopLocalSession(activeSession, config);
+				let hotwords = config.hotwords || [];
+				try { hotwords = learning.hotwords(hotwords); }
+				catch (error) { ctx.ui.notify(`Learned hotwords unavailable: ${error instanceof Error ? error.message : error}`, "warning"); }
+				await stopLocalSession(activeSession, { ...config, hotwords });
 			} else {
 				stopStreamingSession(activeSession);
 			}
@@ -1583,7 +1565,17 @@ export default function (pi: ExtensionAPI) {
 
 		if (terminalInputUnsub) { terminalInputUnsub(); terminalInputUnsub = null; }
 
+		const keybindings = getKeybindings();
+		const deletionActions = ["app.clear", "tui.editor.deleteCharBackward", "tui.editor.deleteCharForward",
+			"tui.editor.deleteWordBackward", "tui.editor.deleteWordForward", "tui.editor.deleteToLineStart",
+			"tui.editor.deleteToLineEnd", "tui.editor.undo"] as const;
 		terminalInputUnsub = ctx.ui.onTerminalInput((data: string) => {
+			if (!isKeyRelease(data) && deletionActions.some(action => keybindings.matches(data, action))) {
+				const editorCtx = ctx;
+				queueMicrotask(() => {
+					if (editorCtx?.hasUI && editorCtx === ctx) voiceLearning.observeEditor(editorCtx.ui.getEditorText());
+				});
+			}
 			if (!config.enabled) return undefined;
 
 			// v7.1 §4 — escape priority routing for v7.1 widgets. When
@@ -1999,6 +1991,7 @@ export default function (pi: ExtensionAPI) {
 				// During recording: cancel recording and clear transcript
 				if (voiceState === "recording" || voiceState === "warmup" || voiceState === "finalizing") {
 					voiceDebug("Escape pressed → canceling voice");
+					voiceLearning.clear();
 					abortPreRecording();
 					if (activeSession) {
 						abortSession(activeSession);
@@ -2024,6 +2017,7 @@ export default function (pi: ExtensionAPI) {
 						if (ctx?.hasUI) {
 							const currentText = ctx.ui.getEditorText() || "";
 							if (currentText.trim()) {
+								voiceLearning.clear();
 								ctx.ui.setEditorText("");
 								lastEscapeTime = 0;
 								return { consume: true };
@@ -2085,6 +2079,51 @@ export default function (pi: ExtensionAPI) {
 				setVoiceState("idle");
 			}
 			// voiceState === "finalizing" → ignore (wait for transcript)
+		},
+	});
+
+	pi.on("input", (event) => {
+		if (event.source === "interactive") voiceLearning.stageSubmission(event.text);
+	});
+	pi.on("message_start", (event, messageCtx) => {
+		if (event.message.role !== "user") return;
+		const content = event.message.content;
+		const text = typeof content === "string" ? content : content.filter(part => part.type === "text").map(part => part.text).join("\n");
+		const automatic = voiceLearning.confirmSubmission(text, learningCompletion(messageCtx), messageCtx.ui);
+		if (automatic && messageCtx.hasUI && messageCtx.ui.getEditorText() === text) {
+			messageCtx.ui.setEditorText("");
+			editorTextBeforeVoice = "";
+		}
+	});
+
+	pi.registerCommand("voice-learn", {
+		description: "Automatic voice learning: status, on, off, undo, reset, or raw",
+		handler: async (args, commandCtx) => {
+			try {
+				const action = args.trim() || "status";
+				if (action === "raw") {
+					if (!commandCtx.hasUI || !voiceLearning.restoreOriginal(commandCtx.ui)) commandCtx.ui.notify("No raw dictation available in this session.", "info");
+					return;
+				}
+				if (["on", "off", "undo", "reset"].includes(action)) {
+					voiceLearning.clear();
+					if (action === "on" || action === "off") learning.setEnabled(action === "on");
+					if (action === "undo" && !learning.undo()) commandCtx.ui.notify("No learned rule update to undo.", "info");
+					if (action === "reset") learning.reset();
+				} else if (action !== "status") {
+					commandCtx.ui.notify("Usage: /voice-learn [status|on|off|undo|reset|raw]", "info");
+					return;
+				}
+				const state = learning.getState();
+				commandCtx.ui.notify([
+					`Voice learning ${state.enabled ? "ON" : "OFF"}: ${state.pendingCount}/10 submissions since analysis; ${state.examples.length} examples retained.`,
+					`Storage: ${learningPath}`,
+					"Uses the current model for analysis and learned rewriting. No audio saved.",
+					JSON.stringify(state.rules, null, 2),
+				].join("\n"), "info");
+			} catch (error) {
+				commandCtx.ui.notify(`Voice learning: ${error instanceof Error ? error.message : error}`, "warning");
+			}
 		},
 	});
 

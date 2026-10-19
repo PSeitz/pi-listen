@@ -45,7 +45,8 @@ describe("loadConfigWithSource", () => {
 		expect(result.config.hotwords).toContain("Tantivy");
 		expect(result.config.hotwords).toContain("Pomsky");
 		expect(result.config.hotwords).toContain("foyer");
-		expect(result.config.hotwords).toContain("feuer");
+		expect(result.config.hotwords).toContain("feuer :10");
+		expect(result.config.hotwordsScore).toBe(2.0);
 		expect(result.config.hotwords).toContain("BYOC");
 		expect(result.config.hotwords).toContain("SaaS");
 		expect(result.config.hotwords).toContain("EVP");
@@ -85,14 +86,22 @@ describe("loadConfigWithSource", () => {
 		const agentDir = path.join(cwd, "agent-home");
 		writeSettings(agentDir, "settings.json", {
 			enabled: true,
-			hotwords: [" Tantivy ", "Quickwit", "bad/phrase", "bad:score", 42],
+			hotwords: [" Tantivy ", "Quickwit", " feuer :10 ", "bad/phrase", "bad:score", "bad :oops", "bad :10:20", "bad\nphrase :10", ":10", 42],
 			hotwordsScore: 50,
 		});
 
 		const result = loadConfigWithSource(cwd, { agentDir });
 
-		expect(result.config.hotwords).toEqual(["Tantivy", "Quickwit"]);
+		expect(result.config.hotwords).toEqual(["Tantivy", "Quickwit", "feuer :10"]);
 		expect(result.config.hotwordsScore).toBe(50);
+	});
+
+	test("preserves default hotwords when saved and reloaded", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		saveConfig(structuredClone(DEFAULT_CONFIG), "global", cwd, { agentDir });
+
+		expect(loadConfigWithSource(cwd, { agentDir }).config.hotwords).toEqual(DEFAULT_CONFIG.hotwords);
 	});
 
 	test.each([0.05, 0, -2])("preserves hotword score %s without clamping", (hotwordsScore) => {

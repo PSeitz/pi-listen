@@ -6,7 +6,7 @@
   <img src="https://raw.githubusercontent.com/codexstar69/pi-listen/main/assets/banner.png" alt="pi-listen — Voice input for the Pi coding agent" width="100%" />
 </p>
 
-**Hold-to-talk voice input for [Pi](https://github.com/mariozechner/pi-coding-agent).** Cloud streaming via Deepgram or fully offline with local models.
+**Hold-to-talk voice input for [Pi](https://github.com/mariozechner/pi-coding-agent).** Cloud streaming via Deepgram or offline recognition with local models. This personal fork enables model-assisted learning by default; use `/voice-learn off` to keep local dictation fully offline.
 
 [![npm version](https://img.shields.io/npm/v/@codexstar/pi-listen.svg)](https://www.npmjs.com/package/@codexstar/pi-listen)
 [![license](https://img.shields.io/npm/l/@codexstar/pi-listen.svg)](https://github.com/codexstar69/pi-listen/blob/main/LICENSE)
@@ -153,6 +153,7 @@ See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtim
 | `/voice-speak-test` | Speak a sample sentence |
 | `/voice-speak-toggle` | Enable / disable TTS |
 | `/voice-autosubmit` `[on|off]` | Toggle: STT text auto-sent to the agent |
+| `/voice-learn` `[status|on|off|undo|reset|raw]` | Inspect/control learned replacements, rewriting, and hotwords |
 | `/voice-speak-models` | Browse / install TTS voice models |
 | `/voice-speak-info` | Diagnose TTS state |
 | `/voice-help` | Keyboard + command reference (or press `F1`) |
@@ -305,10 +306,54 @@ replaces these defaults.
 `hotwords` enables contextual biasing for in-process Parakeet models. It does
 not retrain the model: it switches sherpa-onnx to modified beam search and
 prefers matching token sequences during decoding. `hotwordsScore` is a per-token
-boost shared by all hotwords. Any finite number is accepted without clamping;
-start at `2.0` and increase it only if needed. High scores can cause false matches.
+boost used by hotwords without an explicit score. Append ` :10` to a hotword to
+override its score; this fork defaults to `"feuer :10"`, while other hotwords use
+`hotwordsScore` (default `2.0`). Any finite number is accepted without clamping.
+Increase scores only if needed; high scores can cause false matches.
 Hotwords are ignored by Whisper, Moonshine, SenseVoice, GigaAM, external servers, and
 Deepgram. Project-scoped voice settings can provide a repository-specific list.
+
+### Automatic corrections and rewriting
+
+This personal fork enables learning by default for recordings made with the existing
+hold-to-talk/toggle controls. It does **not** listen continuously or retain audio.
+After transcription, learned case-insensitive literal replacements run locally.
+Learned wording preferences, when present, trigger a separate call to the currently
+selected Pi model to rewrite the draft before auto-submit or manual editing.
+Broad replacements such as `fire` → `feuer` are allowed; matches respect word
+boundaries and do not cascade through other rules.
+
+The extension pairs each dictated draft with the next matching **accepted user
+message**, retaining three versions:
+
+```json
+{"original":"check the fire cache","suggested":"check the feuer cache","submitted":"check the foyer cache"}
+```
+
+Every **10 accepted voice submissions**, the current model reviews the examples and
+automatically updates replacements, rewriting preferences, and scored hotwords.
+Multiple recordings appended to one draft count as one submission. Manual reversals
+are feedback; accepting an automatic rewrite is not treated as independent evidence
+that it was correct. The analysis is instructed to ignore unrelated replacement
+messages. Clearing the draft abandons its pending example; session changes also
+clear pending associations. Late model responses never overwrite edits made while
+rewriting was in progress. Learned hotwords affect in-process Parakeet only;
+text rewriting works with every recognition backend.
+
+Data and controls live in `~/.pi/agent/voice-learning.json`, **not Pi settings** or the
+fork's default list. The file is private to your OS user and shared across projects
+and sessions. It retains the latest 100 text triples, current rules, and one previous
+rule set for undo; examples over 16,000 characters per version are skipped.
+**Model calls send these texts/preferences to the selected model's provider**, incur
+normal provider costs, and can add latency. They do not send audio or conversation
+history and have no tools. A recent Pi with the model-registry API is required.
+Provider/validation failures keep existing rules and leave the raw transcript available.
+
+- `/voice-learn status`: show rules, enabled state, and batch progress.
+- `/voice-learn off` / `on`: disable/enable collection, rewriting, and learned hotwords.
+- `/voice-learn raw`: restore the latest raw draft in the editor (replaces editor text).
+- `/voice-learn undo`: revert the last learned rule update, once.
+- `/voice-learn reset`: forget retained examples and rules, preserving on/off state.
 
 `DEEPGRAM_API_KEY` from your shell is used at runtime and is not copied back
 into `~/.pi/agent/settings.json`. If you paste a key during onboarding, that is
