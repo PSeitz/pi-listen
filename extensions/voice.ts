@@ -1218,7 +1218,7 @@ export default function (pi: ExtensionAPI) {
 				rememberTranscript(interim, finals);
 				updateVoiceStatus();
 			},
-			onDone: async (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => {
+			onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => {
 				const ctx = recordingContext;
 				voiceDebug("onDone callback", { fullText: fullText.slice(0, 100), meta, voiceState, spaceConsumed });
 				activeSession = null;
@@ -1253,7 +1253,7 @@ export default function (pi: ExtensionAPI) {
 				if (ctx.hasUI) {
 					const elapsed = ((Date.now() - recordingStart) / 1000).toFixed(1);
 					addToHistory(fullText, parseFloat(elapsed));
-					const finalText = await voiceLearning.finish(fullText, prefix, learningCompletion(ctx), ctx.ui);
+					const finalText = voiceLearning.finish(fullText, prefix, ctx.ui);
 					if (!voiceLearning.isCurrent(generation)) return;
 					if (finalText === null) {
 						ctx.ui.notify("Voice text held because you edited the draft. /voice-learn raw restores the transcript.", "info");
@@ -2098,7 +2098,7 @@ export default function (pi: ExtensionAPI) {
 				commandCtx.ui.notify([
 					`Voice learning ${state.enabled ? "ON" : "OFF"}: ${state.pendingCount}/10 submissions since analysis; ${state.examples.length} examples retained.`,
 					`Storage: ${learningPath}`,
-					"Uses the current model for analysis and learned rewriting. No audio saved.",
+					"Corrections are local static replacements. Only background learning uses the current model, every 10 submissions. No audio saved.",
 					JSON.stringify(state.rules, null, 2),
 				].join("\n"), "info");
 			} catch (error) {

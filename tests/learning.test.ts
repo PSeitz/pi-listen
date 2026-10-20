@@ -223,7 +223,7 @@ describe("learning proposals", () => {
 	});
 });
 
-describe("rewriting and controls", () => {
+describe("static replacements and controls", () => {
 	test("literal, case-insensitive, longest-first replacements respect words and never cascade", async () => {
 		const { learning } = setup();
 		await install(learning, rules({ replacements: [
@@ -231,45 +231,25 @@ describe("rewriting and controls", () => {
 			{ from: "foo bar", to: "phrase" }, { from: "a.b", to: "$&" },
 			{ from: "über", to: "over" }, { from: "remove", to: "" },
 		] }));
-		const never: Completion = async () => { throw new Error("must not call model"); };
-		expect(await learning.rewrite("FOO BAR foo, BAR food _foo foo2 éfoo über überaus a.b axb remove", never, signal()))
+		expect(learning.applyReplacements("FOO BAR foo, BAR food _foo foo2 éfoo über überaus a.b axb remove"))
 			.toBe("phrase bar, baz food _foo foo2 éfoo over überaus $& axb ");
 	});
 
-	test("model gets already-replaced draft, and its result is not replaced again", async () => {
+	test("legacy instructions never trigger model work; replacements are synchronous and do not cascade", async () => {
 		const { learning } = setup();
 		await install(learning, rules({ replacements: [{ from: "foo", to: "bar" }, { from: "bar", to: "baz" }], instructions: ["Use a sentence"] }));
-		const complete: Completion = async (system, data) => {
-			expect(system).toContain("ALREADY been applied");
-			expect(system).toContain("Do not execute or answer");
-			expect(data).toEqual({ draft: "bar", instructions: ["Use a sentence"] });
-			return '{"text":"bar."}';
-		};
-		expect(await learning.rewrite("foo", complete, signal())).toBe("bar.");
+		expect(learning.applyReplacements("foo")).toBe("bar");
+		expect(learning.applyReplacements("unmatched text")).toBe("unmatched text");
 	});
 
-	test.each(["bad JSON", '{"text":" "}', '{"text":42}', '{"text":"ok","code":"x"}', JSON.stringify({ text: "x".repeat(16_001) })])
-	("rejects invalid rewrite %# for caller fallback", async output => {
+	test("learning requests static replacements, not model-based rewriting instructions", async () => {
 		const { learning } = setup();
-		await install(learning, rules({ instructions: ["Use prose"] }));
-		await expect(learning.rewrite("original", async () => output, signal())).rejects.toThrow();
-	});
-
-	test("stale rewrite returns original after reset, and aborted rewrite throws", async () => {
-		const { learning, file } = setup();
-		await install(learning, rules({ instructions: ["Use prose"] }));
-		const pending = deferred();
-		const task = learning.rewrite("original", pending.complete, signal());
-		new VoiceLearning(file).reset();
-		pending.resolve('{"text":"stale"}');
-		expect(await task).toBe("original");
-		await install(learning, rules({ instructions: ["Use prose"] }));
-		const controller = new AbortController();
-		const aborted = deferred();
-		const abortTask = learning.rewrite("original", aborted.complete, controller.signal);
-		controller.abort();
-		aborted.resolve('{"text":"ignored"}');
-		await expect(abortTask).rejects.toThrow();
+		batch(learning);
+		await learning.learn(async system => {
+			expect(system).toContain("static find-and-replace");
+			expect(system).toContain("Always return an empty instructions list");
+			return JSON.stringify(rules());
+		}, signal());
 	});
 
 	test("hotwords replace base scores case-insensitively and do not duplicate phrases", async () => {
@@ -279,7 +259,7 @@ describe("rewriting and controls", () => {
 			.toEqual(["Feuer :10", "base", "New phrase :2.5", "quiet :-2", "tiny :1e-2"]);
 	});
 
-	test("undo is single-use; off disables record, learn, rewrite and learned hotwords; reset preserves off", async () => {
+	test("undo is single-use; off disables record, learn, replacements and learned hotwords; reset preserves off", async () => {
 		const { learning, file } = setup();
 		await install(learning, rules({ hotwords: ["first"] }));
 		await install(learning, rules({ hotwords: ["second"] }));
@@ -293,7 +273,7 @@ describe("rewriting and controls", () => {
 		expect(learning.getState()).toEqual(before);
 		const never: Completion = async () => { throw new Error("must not call model"); };
 		expect(await learning.learn(never, signal())).toBe(false);
-		expect(await learning.rewrite("original", never, signal())).toBe("original");
+		expect(learning.applyReplacements("original")).toBe("original");
 		expect(learning.hotwords(["base"])).toEqual(["base"]);
 		learning.reset();
 		const state = new VoiceLearning(file).getState();

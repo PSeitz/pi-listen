@@ -313,13 +313,13 @@ Increase scores only if needed; high scores can cause false matches.
 Hotwords are ignored by Whisper, Moonshine, SenseVoice, GigaAM, external servers, and
 Deepgram. Project-scoped voice settings can provide a repository-specific list.
 
-### Automatic corrections and rewriting
+### Static corrections and automatic learning
 
 This personal fork enables learning by default for recordings made with the existing
 hold-to-talk/toggle controls. It does **not** listen continuously or retain audio.
-After transcription, learned case-insensitive literal replacements run locally.
-Learned wording preferences, when present, trigger a separate call to the currently
-selected Pi model to rewrite the draft before auto-submit or manual editing.
+After transcription, learned case-insensitive literal replacements run locally,
+synchronously. **There is no model call for dictation correction.** Previously saved
+rewriting instructions are ignored; no reset of examples or rules is needed.
 Neither interim transcripts nor the uncorrected draft are written into the editor.
 Only the finished result is inserted, once, and only if the editor remained untouched.
 Broad replacements such as `fire` → `feuer` are allowed; matches respect word
@@ -333,29 +333,29 @@ message**, retaining three versions:
 ```
 
 Every **10 accepted voice submissions**, the current model reviews the examples and
-automatically updates replacements, rewriting preferences, and scored hotwords.
+automatically updates static find-and-replace rules and scored hotwords.
 Multiple recordings appended to one draft count as one submission. Manual reversals
-are feedback; accepting an automatic rewrite is not treated as independent evidence
+are feedback; accepting an automatic replacement is not treated as independent evidence
 that it was correct. The analysis is instructed to ignore unrelated replacement
 messages. Clearing the draft abandons its pending example; session changes also
-clear pending associations. Actual edits or cursor navigation within existing text cancel pending rewrites
-and stops automatic editor changes until you start another recording—even if you
-undo your edits or the text itself never changes. A result that was not inserted is
+clear pending associations. Actual edits or cursor navigation within existing text
+prevent transcript insertion until you start another recording—even if you undo
+your edits or the text itself never changes. A result that was not inserted is
 available through `/voice-learn raw` and is not used as correction evidence.
-Once text is visible, voice recognition and rewriting never replace it. Learned hotwords affect in-process Parakeet only;
-text rewriting works with every recognition backend.
+Once text is visible, voice recognition never replaces it. Learned hotwords affect
+in-process Parakeet only; static text replacements work with every recognition backend.
 
 Data and controls live in `~/.pi/agent/voice-learning.json`, **not Pi settings** or the
 fork's default list. The file is private to your OS user and shared across projects
 and sessions. It retains the latest 100 text triples, current rules, and one previous
 rule set for undo; examples over 16,000 characters per version are skipped.
-**Model calls send these texts/preferences to the selected model's provider**, incur
-normal provider costs, and can add latency. They do not send audio or conversation
-history and have no tools. A recent Pi with the model-registry API is required.
+**Background learning calls send these text examples/rules to the selected model's
+provider** and incur normal provider costs. They never delay dictation insertion or
+change a visible draft. They do not send audio or conversation history and have no tools. A recent Pi with the model-registry API is required.
 Provider/validation failures keep existing rules and leave the raw transcript available.
 
 - `/voice-learn status`: show rules, enabled state, and batch progress.
-- `/voice-learn off` / `on`: disable/enable collection, rewriting, and learned hotwords.
+- `/voice-learn off` / `on`: disable/enable collection, static replacements, and learned hotwords.
 - `/voice-learn raw`: restore the latest raw draft in the editor (replaces editor text).
 - `/voice-learn undo`: revert the last learned rule update, once.
 - `/voice-learn reset`: forget retained examples and rules, preserving on/off state.

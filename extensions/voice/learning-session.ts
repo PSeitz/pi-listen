@@ -11,7 +11,6 @@ const append = (prefix: string, text: string) => (prefix ? prefix + " " : "") + 
 /** Associate dictation with accepted messages, without letting late rewrites overwrite edits. */
 export class VoiceLearningSession {
 	private generation = 0;
-	private rewriteController?: AbortController;
 	private learnController?: AbortController;
 	private pending?: { original: string; suggested: string };
 	private submissions: { example: LearningExample; automatic: boolean }[] = [];
@@ -23,7 +22,6 @@ export class VoiceLearningSession {
 	constructor(readonly learning: VoiceLearning) {}
 
 	begin(prefix: string): number {
-		this.rewriteController?.abort();
 		// Keep corrections made between recordings visible in the eventual evidence triple.
 		this.originalPrefix = prefix && this.pending ? this.pending.original : prefix;
 		this.suggestedPrefix = prefix && this.pending ? this.pending.suggested : prefix;
@@ -42,7 +40,6 @@ export class VoiceLearningSession {
 	/** Give the user control until they explicitly start another recording. */
 	takeEditorControl(): void {
 		this.userEditing = true;
-		this.rewriteController?.abort();
 	}
 
 	/** Check actual editor changes after Pi handles input; terminal events alone are not edits. */
@@ -66,47 +63,31 @@ export class VoiceLearningSession {
 	observeEditor(text: string): void {
 		if (!text.trim()) {
 			this.pending = undefined;
-			this.rewriteController?.abort();
 			++this.generation;
 		}
 	}
 
-	async finish(text: string, prefix: string, complete: Completion, editor: Editor): Promise<string | null> {
-		// Keep all STT/model output off-editor until it is ready to insert once.
+	finish(text: string, prefix: string, editor: Editor): string | null {
 		this.rememberTranscript(text);
 		if (this.userEditing || editor.getEditorText() !== prefix) return null;
-		const pending = this.pending;
-		const expected = prefix;
-		const generation = this.generation;
-		const controller = new AbortController();
-		this.rewriteController = controller;
-		editor.setStatus("voice-draft", "Preparing voice text…");
+		let corrected = text;
 		try {
-			let rewritten = text;
-			try {
-				rewritten = await this.learning.rewrite(text, complete, AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]));
-			} catch (error) {
-				if (!controller.signal.aborted) editor.notify(`Voice rewrite skipped: ${error instanceof Error ? error.message : error}`, "warning");
-			}
-			if (this.userEditing || !this.isCurrent(generation) || controller.signal.aborted || this.pending !== pending) return null;
-			if (editor.getEditorText() !== expected) return null;
-			const result = append(prefix, rewritten);
-			if (!result.trim()) return null;
-			this.preview(text);
-			this.pending!.suggested = append(this.suggestedPrefix, rewritten);
-			if (result !== expected) editor.setEditorText(result);
-			return result;
-		} finally {
-			// setEditorText does not request a TUI redraw. Clearing progress does,
-			// after insertion, so the result is visible without another keypress.
-			if (this.rewriteController === controller) editor.setStatus("voice-draft", undefined);
+			corrected = this.learning.applyReplacements(text);
+		} catch (error) {
+			editor.notify(`Voice replacements skipped: ${error instanceof Error ? error.message : error}`, "warning");
 		}
+		const result = append(prefix, corrected);
+		if (!result.trim()) return null;
+		this.preview(text);
+		this.pending!.suggested = append(this.suggestedPrefix, corrected);
+		if (result !== prefix) editor.setEditorText(result);
+		editor.setStatus("voice-draft", undefined);
+		return result;
 	}
 
 	stageSubmission(text: string, automatic = false): void {
 		const pending = this.pending;
 		this.pending = undefined;
-		this.rewriteController?.abort();
 		++this.generation;
 		if (!pending || !text.trim()) return;
 		this.submissions.push({ example: { ...pending, submitted: text }, automatic });
@@ -134,7 +115,7 @@ export class VoiceLearningSession {
 		void this.learning.learn(complete, AbortSignal.any([controller.signal, AbortSignal.timeout(60_000)]))
 			.then(result => {
 				changed = result;
-				if (changed && !controller.signal.aborted) editor.notify("Voice replacements, preferences, and hotwords updated. /voice-learn status or undo", "info");
+				if (changed && !controller.signal.aborted) editor.notify("Voice replacements and hotwords updated. /voice-learn status or undo", "info");
 			})
 			.catch(error => {
 				if (!controller.signal.aborted) editor.notify(`Voice learning will retry after the next dictation: ${error instanceof Error ? error.message : error}`, "warning");
@@ -157,7 +138,6 @@ export class VoiceLearningSession {
 
 	clear(): void {
 		++this.generation;
-		this.rewriteController?.abort();
 		this.learnController?.abort();
 		this.learnController = undefined;
 		this.pending = undefined;
