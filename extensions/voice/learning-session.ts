@@ -3,6 +3,7 @@ import { VoiceLearning, type Completion, type LearningExample } from "./learning
 interface Editor {
 	getEditorText(): string;
 	setEditorText(text: string): void;
+	setStatus(key: string, text: string | undefined): void;
 	notify(message: string, level: "info" | "warning"): void;
 }
 const append = (prefix: string, text: string) => (prefix ? prefix + " " : "") + text;
@@ -44,6 +45,20 @@ export class VoiceLearningSession {
 		this.rewriteController?.abort();
 	}
 
+	/** Check actual editor changes after Pi handles input; terminal events alone are not edits. */
+	observeInput(editor: Editor, navigation = false): void {
+		const before = editor.getEditorText();
+		const generation = this.generation;
+		if (navigation && before.length > 0) this.takeEditorControl();
+		queueMicrotask(() => {
+			if (!this.isCurrent(generation)) return;
+			const after = editor.getEditorText();
+			if (after === before) return;
+			this.takeEditorControl();
+			this.observeEditor(after);
+		});
+	}
+
 	rememberTranscript(text: string): void {
 		this.lastOriginal = append(this.originalPrefix, text);
 	}
@@ -65,20 +80,27 @@ export class VoiceLearningSession {
 		const generation = this.generation;
 		const controller = new AbortController();
 		this.rewriteController = controller;
-		let rewritten = text;
+		editor.setStatus("voice-draft", "Preparing voice text…");
 		try {
-			rewritten = await this.learning.rewrite(text, complete, AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]));
-		} catch (error) {
-			if (!controller.signal.aborted) editor.notify(`Voice rewrite skipped: ${error instanceof Error ? error.message : error}`, "warning");
+			let rewritten = text;
+			try {
+				rewritten = await this.learning.rewrite(text, complete, AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]));
+			} catch (error) {
+				if (!controller.signal.aborted) editor.notify(`Voice rewrite skipped: ${error instanceof Error ? error.message : error}`, "warning");
+			}
+			if (this.userEditing || !this.isCurrent(generation) || controller.signal.aborted || this.pending !== pending) return null;
+			if (editor.getEditorText() !== expected) return null;
+			const result = append(prefix, rewritten);
+			if (!result.trim()) return null;
+			this.preview(text);
+			this.pending!.suggested = append(this.suggestedPrefix, rewritten);
+			if (result !== expected) editor.setEditorText(result);
+			return result;
+		} finally {
+			// setEditorText does not request a TUI redraw. Clearing progress does,
+			// after insertion, so the result is visible without another keypress.
+			if (this.rewriteController === controller) editor.setStatus("voice-draft", undefined);
 		}
-		if (this.userEditing || !this.isCurrent(generation) || controller.signal.aborted || this.pending !== pending) return null;
-		if (editor.getEditorText() !== expected) return null;
-		const result = append(prefix, rewritten);
-		if (!result.trim()) return null;
-		this.preview(text);
-		this.pending!.suggested = append(this.suggestedPrefix, rewritten);
-		if (result !== expected) editor.setEditorText(result);
-		return result;
 	}
 
 	stageSubmission(text: string, automatic = false): void {
@@ -129,6 +151,7 @@ export class VoiceLearningSession {
 		if (this.lastOriginal === undefined) return false;
 		this.takeEditorControl();
 		editor.setEditorText(this.lastOriginal);
+		editor.setStatus("voice-draft", undefined);
 		return true;
 	}
 

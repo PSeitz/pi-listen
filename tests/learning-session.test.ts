@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { Editor as TuiEditor } from "@mariozechner/pi-tui";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -17,12 +18,19 @@ function setup() {
 	const session = new VoiceLearningSession(learning);
 	const notices: string[] = [];
 	let text = "";
+	let visibleText = "";
+	const statuses = new Map<string, string>();
 	const editor = {
 		getEditorText: () => text,
 		setEditorText: (next: string) => { text = next; },
+		// Like Pi, setEditorText changes state but setStatus requests a redraw.
+		setStatus: (key: string, value: string | undefined) => {
+			if (value === undefined) statuses.delete(key); else statuses.set(key, value);
+			visibleText = text;
+		},
 		notify: (message: string) => { notices.push(message); },
 	};
-	return { learning, session, editor, notices };
+	return { learning, session, editor, notices, statuses, getVisibleText: () => visibleText };
 }
 async function install(learning: VoiceLearning, next = rules) {
 	for (let i = 0; i < 10; i++) learning.record({ original: "fire", suggested: "fire", submitted: "feuer" });
@@ -230,6 +238,85 @@ test("transcription and correction finish off-editor, then insert exactly once",
 	session.confirmSubmission("manual correction", never, editor);
 	expect(learning.getState().examples.at(-1)).toEqual({ original: "raw speech final", suggested: "corrected speech", submitted: "manual correction" });
 	await tick();
+});
+
+test.each(["", "existing draft"])("unchanged input events do not cancel insertion into %j", async prefix => {
+	const { learning, session, editor, statuses, getVisibleText } = setup();
+	await install(learning, { ...rules, instructions: ["Remove filler words"] });
+	editor.setEditorText(prefix);
+	session.begin(prefix);
+	const pending = deferred();
+	const task = session.finish("fire", prefix, pending.complete, editor);
+	expect(statuses.has("voice-draft")).toBe(true);
+	session.observeInput(editor); // e.g. a terminal report or a consumed key
+	if (!prefix) session.observeInput(editor, true); // cursor movement in an empty editor
+	await tick();
+	pending.resolve('{"text":"feuer"}');
+	const expected = prefix ? `${prefix} feuer` : "feuer";
+	expect(await task).toBe(expected);
+	expect(getVisibleText()).toBe(expected); // No keypress needed to reveal the result.
+	expect(statuses.size).toBe(0);
+});
+
+test.each(["typing", "typing then undo", "navigation"])("actual %s still prevents late insertion", async action => {
+	const { learning, session, editor, statuses } = setup();
+	await install(learning, { ...rules, instructions: ["Remove filler words"] });
+	const prefix = action === "navigation" ? "existing draft" : "";
+	editor.setEditorText(prefix);
+	session.begin(prefix);
+	const pending = deferred();
+	const task = session.finish("fire", prefix, pending.complete, editor);
+	session.observeInput(editor, action === "navigation");
+	if (action !== "navigation") editor.setEditorText("my typing");
+	await tick();
+	if (action === "typing then undo") {
+		session.observeInput(editor);
+		editor.setEditorText("");
+		await tick();
+	}
+	const expected = editor.getEditorText();
+	pending.resolve('{"text":"feuer"}');
+	expect(await task).toBe(null);
+	expect(editor.getEditorText()).toBe(expected);
+	expect(statuses.size).toBe(0);
+});
+
+test("input observation from an older recording cannot cancel a new recording", async () => {
+	const { session, editor } = setup();
+	session.begin("");
+	session.observeInput(editor);
+	editor.setEditorText("new prefix");
+	session.begin("new prefix");
+	await tick();
+	expect(await session.finish("speech", "new prefix", never, editor)).toBe("new prefix speech");
+});
+
+test("Pi editor receives a redraw after asynchronous voice insertion without keyboard input", async () => {
+	const { session } = setup();
+	let rendered = "";
+	let redraws = 0;
+	const tui = { terminal: { rows: 24 }, requestRender() { redraws++; rendered = component.render(80).join("\n"); } };
+	const component = new TuiEditor(tui as any, { borderColor: (text: string) => text } as any);
+	component.setText("not yet painted");
+	expect(redraws).toBe(0); // Reproduce Pi's setEditorText behavior.
+	component.setText("");
+	const editor = {
+		getEditorText: () => component.getText(),
+		setEditorText: (text: string) => component.setText(text),
+		setStatus: (_key: string, _text: string | undefined) => tui.requestRender(),
+		notify: () => {},
+	};
+	session.begin("");
+	expect(await session.finish("visible without a cursor key", "", never, editor)).toBe("visible without a cursor key");
+	expect(rendered).toContain("visible without a cursor key");
+});
+
+test("raw recovery requests a redraw rather than waiting for a keypress", () => {
+	const { session, editor, getVisibleText } = setup();
+	session.begin("");
+	session.rememberTranscript("raw speech");
+	expect(session.restoreOriginal(editor)).toBe(true);
+	expect(getVisibleText()).toBe("raw speech");
 });
 
 test("model failures leave raw text available and warn", async () => {

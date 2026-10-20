@@ -141,7 +141,7 @@ See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtim
 1. **Hold SPACE** — warmup countdown appears, audio capture starts immediately (pre-recording)
 2. **Keep holding** — speech is collected without changing the editor (streamed with Deepgram, audio-buffered locally)
 3. **Release SPACE** — recording continues for 1.5s (tail recording) to catch your last word, then finalizes
-4. Transcription and automatic correction finish off-editor, then the result is inserted **once**, ready to send. If you typed or moved the cursor meanwhile, nothing is inserted; `/voice-learn raw` can recover the transcript.
+4. Transcription and automatic correction finish off-editor, then the result is inserted **once**, ready to send. If you edited the draft or navigated within existing text meanwhile, nothing is inserted; `/voice-learn raw` can recover the transcript. Harmless input or cursor movement in an untouched empty editor does not cancel it. Transcription/preparation status clears and the editor refreshes when the result is ready.
 
 ### Commands
 
@@ -338,7 +338,7 @@ Multiple recordings appended to one draft count as one submission. Manual revers
 are feedback; accepting an automatic rewrite is not treated as independent evidence
 that it was correct. The analysis is instructed to ignore unrelated replacement
 messages. Clearing the draft abandons its pending example; session changes also
-clear pending associations. Typing or moving the cursor cancels pending rewrites
+clear pending associations. Actual edits or cursor navigation within existing text cancel pending rewrites
 and stops automatic editor changes until you start another recording—even if you
 undo your edits or the text itself never changes. A result that was not inserted is
 available through `/voice-learn raw` and is not used as correction evidence.

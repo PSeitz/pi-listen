@@ -1436,7 +1436,7 @@ export default function (pi: ExtensionAPI) {
 			if (activeSession.backend === "local") {
 				// Local: show which model is transcribing + estimated time
 				const modelName = LOCAL_MODELS.find(m => m.id === (config.localModel || "whisper-small"))?.name || config.localModel || "local model";
-				ctx?.ui.notify(`Transcribing with ${modelName}…`, "info");
+				ctx?.ui.setStatus("voice", `Transcribing with ${modelName}…`);
 				let hotwords = config.hotwords || [];
 				try { hotwords = learning.hotwords(hotwords); }
 				catch (error) { ctx.ui.notify(`Learned hotwords unavailable: ${error instanceof Error ? error.message : error}`, "warning"); }
@@ -1549,20 +1549,14 @@ export default function (pi: ExtensionAPI) {
 		if (terminalInputUnsub) { terminalInputUnsub(); terminalInputUnsub = null; }
 
 		const keybindings = getKeybindings();
-		const deletionActions = ["app.clear", "tui.editor.deleteCharBackward", "tui.editor.deleteCharForward",
-			"tui.editor.deleteWordBackward", "tui.editor.deleteWordForward", "tui.editor.deleteToLineStart",
-			"tui.editor.deleteToLineEnd", "tui.editor.undo"] as const;
+		const navigationActions = ["tui.editor.cursorUp", "tui.editor.cursorDown", "tui.editor.cursorLeft",
+			"tui.editor.cursorRight", "tui.editor.cursorWordLeft", "tui.editor.cursorWordRight",
+			"tui.editor.cursorLineStart", "tui.editor.cursorLineEnd", "tui.editor.pageUp", "tui.editor.pageDown",
+			"tui.editor.jumpForward", "tui.editor.jumpBackward"] as const;
 		terminalInputUnsub = ctx.ui.onTerminalInput((data: string) => {
-			// Stop automatic editor changes before typing/navigation is handled, even
-			// when it leaves the text unchanged. Held voice-activation spaces are exempt.
-			if (!isKeyRelease(data) && (!matchesKey(data, "space") || (voiceState === "idle" && !spaceConsumed))) {
-				voiceLearning.takeEditorControl();
-			}
-			if (!isKeyRelease(data) && deletionActions.some(action => keybindings.matches(data, action))) {
-				const editorCtx = ctx;
-				queueMicrotask(() => {
-					if (editorCtx?.hasUI && editorCtx === ctx) voiceLearning.observeEditor(editorCtx.ui.getEditorText());
-				});
+			if (!isKeyRelease(data) && ctx?.hasUI) {
+				const navigation = navigationActions.some(action => keybindings.matches(data, action)) || data.startsWith("\x1b[<");
+				voiceLearning.observeInput(ctx.ui, navigation);
 			}
 			if (!config.enabled) return undefined;
 
